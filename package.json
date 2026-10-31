@@ -1,0 +1,55 @@
+{
+  "name": "@kvidzibo/pi-extension-manager",
+  "version": "1.0.0",
+  "description": "Startup table of Pi extension tools and estimated tool-definition tokens.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Tomas Rackauskas",
+  "keywords": [
+    "pi-package",
+    "extensions",
+    "context",
+    "tokens"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kvidzibo/pi-extension-manager.git"
+  },
+  "homepage": "https://github.com/kvidzibo/pi-extension-manager#readme",
+  "bugs": {
+    "url": "https://github.com/kvidzibo/pi-extension-manager/issues"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "prepublishOnly": "npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0"
+  }
+}
