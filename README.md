@@ -3,6 +3,7 @@
 Prints a startup table of extension tools and estimated tool-definition tokens.
 V1 is display-only: no menus, settings, management actions, or model-facing tools.
 
+[npm](https://www.npmjs.com/package/@kvidzibo/pi-extension-manager) ·
 [GitHub](https://github.com/kvidzibo/pi-extension-manager) ·
 [Pi package gallery](https://pi.dev/packages)
 
@@ -10,13 +11,12 @@ V1 is display-only: no menus, settings, management actions, or model-facing tool
 
 Requires Pi 1.4.0 or newer and Node 22.19 or newer.
 
-Until the npm release, install from Git:
+Install from npm:
 
 ```sh
-pi install git:github.com/kvidzibo/pi-extension-manager
+pi install npm:@kvidzibo/pi-extension-manager
 ```
 
-Planned npm package: `@kvidzibo/pi-extension-manager`. It is not published yet.
 Restart Pi after installing. The table prints once at interactive startup,
 not on `/new`, `/reload`, or in print/JSON/RPC modes.
 
