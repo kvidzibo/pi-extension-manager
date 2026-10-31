@@ -10,7 +10,7 @@ V1 is display-only: no menus, settings, management actions, or model-facing tool
 
 Requires Pi 1.4.0 or newer and Node 22.19 or newer.
 
-Until the npm release, install from Git after the implementation PR is merged:
+Until the npm release, install from Git:
 
 ```sh
 pi install git:github.com/kvidzibo/pi-extension-manager
@@ -54,6 +54,25 @@ including narrow terminals and resizing.
 
 ## Publishing
 
-After review and merge, authenticate to npm and run `npm publish --access public`.
-The `pi-package` keyword makes the npm package eligible for Pi gallery discovery;
+Merges to `main` trigger `.github/workflows/publish.yml`. It runs the tests, then
+publishes a new package version publicly with provenance using npm trusted
+publishing (OIDC). Already-published versions are skipped; registry/auth failures
+stop the job. Bump `package.json` and the lockfile together for each new release.
+
+### One-time setup
+
+The package must exist on npm before a trusted publisher can be configured:
+
+1. From an authenticated checkout, run `npm ci --ignore-scripts` and
+   `npm publish --access public` once to create the package.
+2. In npm package settings → **Trusted publishing**, add GitHub Actions:
+   - Organization/user: `kvidzibo`
+   - Repository: `pi-extension-manager`
+   - Workflow filename: `publish.yml`
+   - Allow direct `npm publish`; leave environment unset.
+3. Merge a version bump to `main` to validate the trust relationship within npm's
+   two-day window. Later new-version merges publish without an npm token.
+
+See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
+The `pi-package` keyword enables Pi gallery discovery after npm publication;
 no separate Pi registry upload is required.
