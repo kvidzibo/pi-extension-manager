@@ -12,7 +12,7 @@ const CORE_TOOLS = new Set(["read", "bash", "powershell", "edit", "write", "grep
 // Labels and tool names are terminal text, not executable escape sequences.
 export const cleanText = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
 
-function extensionName(source: SourceInfo): string {
+export function extensionName(source: SourceInfo): string {
 	if (source.path.startsWith("builtin:") || source.path.startsWith("<")) return cleanText(source.path);
 	if (source.origin === "package" && source.source.startsWith("npm:")) {
 		return cleanText(source.source.slice(4).replace(/@[^/@]+$/, ""));
@@ -22,10 +22,14 @@ function extensionName(source: SourceInfo): string {
 	return cleanText(/^index\.[cm]?[jt]s$/.test(name) ? basename(dirname(path)) : name.replace(/\.[cm]?[jt]s$/, ""));
 }
 
+export function definitionText(tool: ToolInfo): string {
+	return JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters,
+		promptGuidelines: tool.promptGuidelines });
+}
+
 function estimateDefinition(tool: ToolInfo): number | null {
 	try {
-		const text = JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters,
-			promptGuidelines: tool.promptGuidelines });
+		const text = definitionText(tool);
 		return Math.ceil(text.length / 4);
 	} catch {
 		return null;

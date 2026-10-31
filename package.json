@@ -1,7 +1,7 @@
 {
   "name": "@kvidzibo/pi-extension-manager",
-  "version": "1.0.1",
-  "description": "Startup table of Pi extension tools and estimated tool-definition tokens.",
+  "version": "1.1.0",
+  "description": "Inspect Pi extension context, tool definitions, and estimated token contributions.",
   "type": "module",
   "license": "MIT",
   "author": "Tomas Rackauskas",

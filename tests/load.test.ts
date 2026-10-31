@@ -17,7 +17,7 @@ test("manifest loads through Pi and prints one non-context entry only at TUI sta
 	assert.equal(result.extensions.length, 1);
 	const extension = result.extensions[0];
 	assert.equal(extension.tools.size, 0);
-	assert.equal(extension.commands.size, 0);
+	assert.deepEqual([...extension.commands.keys()], ["pi-extensions"]);
 	const entries: Array<{ type: string; data: unknown }> = [];
 	result.runtime.getAllTools = () => [];
 	result.runtime.getActiveTools = () => [];

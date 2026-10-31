@@ -49,6 +49,6 @@ test("startup inventory groups exposed extension tools and renders honest, width
 		assert.ok(lines.every((line) => visibleWidth(line) <= width), `overflow at ${width}`);
 	}
 	assert.match(renderTable(rows, 100, theme).join("\n"), new RegExp(`Total tool tokens ≈ ${expected}`));
-	assert.match(renderTable(withCatalog, 100, theme).join("\n"), /Total tool tokens ≈ n\/a/);
+	assert.match(renderTable(withCatalog, 100, theme).join("\n"), /Known subtotal ≈ \d+ · 1 unknown source/);
 	assert.match(renderTable([], 100, theme).join("\n"), /No active extension tools/);
 });
