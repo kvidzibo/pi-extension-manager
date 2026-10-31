@@ -1,7 +1,7 @@
 # Pi Extension Manager
 
-Prints a startup table of extension tools and estimated tool-definition tokens.
-V1 is display-only: no menus, settings, management actions, or model-facing tools.
+See which Pi extensions contribute context and inspect their content and estimated
+tokens with `/pi-extensions`. A compact tool-definition table appears at startup.
 
 [npm](https://www.npmjs.com/package/@kvidzibo/pi-extension-manager) ·
 [GitHub](https://github.com/kvidzibo/pi-extension-manager) ·
@@ -17,27 +17,57 @@ Install from npm:
 pi install npm:@kvidzibo/pi-extension-manager
 ```
 
-Restart Pi after installing. The table prints once at interactive startup,
-not on `/new`, `/reload`, or in print/JSON/RPC modes.
+Restart Pi to see the table, or `/reload` to load the command in an existing
+session. The table prints once at interactive startup, not on `/new` or `/reload`.
+Both views are interactive-only; print/JSON/RPC modes remain quiet.
+
+## Inspect context
+
+Run **`/pi-extensions`**, type to search by extension, tool, or source path, and
+select a source to see its contributions. Select a contribution to inspect the
+exposed text or JSON. Arrow keys scroll; Home/End jump within content. Escape
+returns one level, preserving the search and selection. Page Up/Down page through
+content in regular mode; Pi reserves them for the transcript in fullscreen.
+Fullscreen also supports clicking list items and scrolling with the mouse.
+Navigation follows Pi's configured keybindings.
+
+- After a model request, the inspector shows the **last observed request** at this
+  extension's `context_with_system` hook: declarations after loadout rewrites,
+  instructions, tool calls/results, and conversation messages. Later hooks and
+  provider conversion may still change that snapshot.
+- Before a request is observed, it shows **registered definitions before loadout**,
+  the current system prompt, and resolved branch messages, respecting compaction
+  and context edits. Session starts, tree navigation and compaction reset the
+  observed snapshot. Run another model turn to observe a fresh request.
+- Tool content is grouped by its **current registered source/name**, not historical
+  ownership. Nested tool results are visible only in the outer result's content.
+- **Unattributed / shared context** contains the combined system instructions,
+  custom messages and ordinary conversation. Pi exposes no reliable ownership for
+  arbitrary prompt injections. Sources with tools or commands can be listed;
+  instruction-only extensions without either may be absent. Absence or “none
+  observed” does not mean zero context.
+
+The inspector is read-only, adds no model-facing tools or messages, and changes no
+configuration. Request snapshots stay in memory only; they are not saved by this
+package. Content may be sensitive. Terminal controls are shown as escapes and
+image data is omitted explicitly.
 
 ## What the numbers mean
 
-- Groups currently active extension tools by their registered source.
-- Estimates each original tool definition's serialized name, description, schema,
-  and prompt guidelines at **four characters per token**, rounded up per tool.
-- Hides inactive tools and core built-in tools. Built-in extensions such as
-  codemode can appear. This package contributes no tools and does not list itself.
-- Catalog-only codemode tools appear with `n/a`: the public API does not expose
-  which fit its inline budget. A total containing unknown costs is also `n/a`.
+All token counts are **estimates: serialized characters / 4**, rounded up per
+contribution—not a model tokenizer, actual context usage, or billing. They count
+exposed text/JSON, not provider framing. Image token costs are unavailable.
+Known subtotals exclude unavailable costs and are **not complete per-extension
+or request totals**. Repeated instruction/tool updates may be represented
+differently by different providers.
 
-These are **pre-loadout tool-definition estimates**, not actual model-context usage
-or billing. Codemode and other loadout hooks can rewrite descriptions or hide
-declarations. Arbitrary extension prompt injections, instruction-only extensions,
-tool results, provider serialization, and later tool changes are not attributed.
-An absent row does **not** prove an extension adds no instructions.
+The startup table is a historical snapshot of active extension tool definitions,
+including registered prompt guidelines, before loadout rewrites. Core tools are
+omitted. Catalog-only codemode costs are `n/a` because Pi does not expose its
+inline catalog budget. The table shows up to eight sources and a known subtotal
+plus the number of unknown sources; the inspector has no source cap.
 
-The table is stored as a native custom session entry, outside model context.
-It makes no network requests, calls no models, and changes no configuration.
+The startup table is a native custom session entry, outside model context.
 
 ## Development
 
@@ -48,9 +78,11 @@ npm pack --dry-run --ignore-scripts
 pi -e ./index.ts
 ```
 
-Tests include filtering/estimation/layout and loading the manifest through Pi's
-real extension loader. Validate the running table in regular/fullscreen modes,
-including narrow terminals and resizing.
+Tests cover attribution boundaries, estimates, safe content inspection, native
+menu navigation/layout, and manifest loading through Pi's real extension loader.
+Validate the running table and inspector against Pi's built-in menus in regular
+and fullscreen modes, including search, drill-down/back, scrolling, narrow
+terminals, resizing, and `/reload`.
 
 ## Publishing
 
