@@ -1,0 +1,45 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      # npm 11 supports OIDC publishing without depending on a future npm major.
+      - run: npm install --global npm@11
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Publish if version is new
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if RESULT=$(npm view "$NAME@$VERSION" version --json 2>&1); then
+            echo "Skip: $NAME@$VERSION already on npm"
+            exit 0
+          fi
+          # Only a missing version permits publication; fail closed on registry/auth errors.
+          if ! grep -qE '"code"[[:space:]]*:[[:space:]]*"E404"' <<< "$RESULT"; then
+            printf '%s\n' "$RESULT" >&2
+            exit 1
+          fi
+          npm publish --access public --provenance
