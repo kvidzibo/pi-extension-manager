@@ -1,7 +1,8 @@
 # Pi Extension Manager
 
-See which Pi extensions contribute context and inspect their content and estimated
-tokens with `/pi-extensions`. A compact tool-definition table appears at startup.
+See which Pi extensions contribute context, inspect their content and estimated
+tokens, and enable or disable extensions with `/pi-extensions`. A compact
+tool-definition table appears at startup.
 
 [npm](https://www.npmjs.com/package/@kvidzibo/pi-extension-manager) ·
 [GitHub](https://github.com/kvidzibo/pi-extension-manager) ·
@@ -47,10 +48,24 @@ Navigation follows Pi's configured keybindings.
   instruction-only extensions without either may be absent. Absence or “none
   observed” does not mean zero context.
 
-The inspector is read-only, adds no model-facing tools or messages, and changes no
-configuration. Request snapshots stay in memory only; they are not saved by this
+Inspection adds no model-facing tools or messages. Request snapshots stay in memory only; they are not saved by this
 package. Content may be sensitive. Terminal controls are shown as escapes and
 image data is omitted explicitly.
+
+## Enable or disable extensions
+
+In the source list, press **Space** on a `[x]` / `[ ]` entry to disable or enable
+that extension. The change is saved to your user `settings.json` immediately and
+applies after `/reload` or a restart. Disabled extensions stay listed so they can
+be re-enabled.
+
+- Entries are the same `+path` / `-path` filters that `pi config` writes, so both
+  tools can be used interchangeably.
+- Only extensions from user settings have a checkbox. Use `pi config` for built-in
+  extensions, project settings, skills, prompts and themes.
+- This extension has no checkbox: disabling it would remove the menu. Use
+  `pi config` or `pi remove` instead.
+- Space toggles in this list, so searches there cannot contain spaces.
 
 ## What the numbers mean
 
@@ -78,7 +93,7 @@ npm pack --dry-run --ignore-scripts
 pi -e ./index.ts
 ```
 
-Tests cover attribution boundaries, estimates, safe content inspection, native
+Tests cover attribution boundaries, estimates, safe content inspection, toggling, native
 menu navigation/layout, and manifest loading through Pi's real extension loader.
 Validate the running table and inspector against Pi's built-in menus in regular
 and fullscreen modes, including search, drill-down/back, scrolling, narrow

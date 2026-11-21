@@ -1,14 +1,25 @@
 import { DynamicBorder, getSelectListTheme, keyHint, keyText, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Container, fuzzyFilter, Input, Key, matchesKey, ScrollView, SelectList, Spacer, Text,
 	truncateToWidth, type Component, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { literalText, subtotal, tokenLabel, type Contribution, type Inspection } from "./context.ts";
+import { literalText, subtotal, tokenLabel, type Contribution, type ContextSource, type Inspection } from "./context.ts";
+import { extensionName } from "./inventory.ts";
+import type { Toggles } from "./toggle.ts";
 
 const summary = (items: Contribution[]) => items.length
 	? `${tokenLabel(subtotal(items))} known${items.some((item) => item.tokens === null) ? " + unavailable" : ""} · ${items.length} items`
 	: "none observed; not proof of zero context";
 
 /** Native selectors, borders, search, focus and scrolling; no model-facing messages. */
-export async function showInspector(ctx: ExtensionCommandContext, inspection: Inspection): Promise<void> {
+export async function showInspector(ctx: ExtensionCommandContext, inspection: Inspection, toggles?: Toggles): Promise<void> {
+	const resources = new Map((toggles?.resources ?? []).map((resource) => [resource.path, resource]));
+	const loaded = new Map([...resources].map(([path, resource]) => [path, resource.enabled]));
+	// Disabled extensions and those without tools or commands stay listed so they can be toggled.
+	const sources: ContextSource[] = [...inspection.sources];
+	for (const [path, resource] of resources) {
+		if (sources.some((source) => source.id === path)) continue;
+		sources.splice(-1, 0, { id: path, label: extensionName({ path, ...resource.metadata }), path, items: [] });
+	}
+	const changed = () => [...resources].some(([path, resource]) => resource.enabled !== loaded.get(path));
 	await ctx.ui.custom<void>((tui, theme, kb, done) => {
 		const title = (text: string) => new Text(theme.bold(theme.fg("accent", literalText(text))), 1, 0);
 		const muted = (text: string) => new Text(theme.fg("muted", literalText(text)), 1, 0);
@@ -85,16 +96,16 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 			push(page);
 		}
 
-		function listPage(options: { title: string; description: string; items: { value: string; label: string; description: string; search: string }[];
-			metadata: (id: string) => string; select: (id: string) => void }): Page {
+		function listPage(options: { title: string; description: string; items: () => { value: string; label: string; description: string; search: string }[];
+			metadata: (id: string) => string; select: (id: string) => void; toggle?: (id: string) => Promise<void> }): Page {
 			const input = new Input({ prompt: " Search: ", placeholder: "extension, tool or source" });
 			let list: SelectList;
-			let filtered = options.items;
+			let filtered = options.items();
 			let limit = 8;
 			const selected = () => list?.getSelectedItem()?.value ?? "";
 			const listHost = new Container();
 			const rebuild = (preselect = "") => {
-				filtered = fuzzyFilter(options.items, input.getValue(), (item) => item.search);
+				filtered = fuzzyFilter(options.items(), input.getValue(), (item) => item.search);
 				list = new SelectList(filtered, limit, getSelectListTheme(), { minPrimaryColumnWidth: 18, maxPrimaryColumnWidth: 40 });
 				list.setSelectedIndex(Math.max(0, filtered.findIndex((item) => item.value === preselect)));
 				list.onSelect = (item) => options.select(item.value);
@@ -110,6 +121,10 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 					else if (kb.matches(data, "tui.select.pageUp") || kb.matches(data, "tui.select.pageDown")) {
 						const index = filtered.findIndex((item) => item.value === selected());
 						list.setSelectedIndex(Math.max(0, index + (kb.matches(data, "tui.select.pageUp") ? -limit : limit)));
+					} else if (options.toggle && data === " ") {
+						// Space toggles, as in `pi config`.
+						const id = selected();
+						void options.toggle(id).then(() => { rebuild(id); tui.requestRender(); });
 					} else {
 						input.handleInput(data);
 						rebuild();
@@ -131,7 +146,7 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 			page.addChild(listHost);
 			page.addChild(new Spacer(1));
 			page.addChild(singleLine(() => options.metadata(selected())));
-			page.addChild(new Text(theme.fg("dim", ` Type to filter · ${keyHint("tui.select.confirm", "inspect")} · ${keyHint("tui.select.cancel", "back")}`), 0, 0));
+			page.addChild(new Text(theme.fg("dim", `Type to filter · ${keyHint("tui.select.confirm", "inspect")}${options.toggle ? " · space enable/disable" : ""} · ${keyHint("tui.select.cancel", "back")}`), 1, 0));
 			page.addChild(new DynamicBorder());
 			rebuild();
 			return page;
@@ -140,11 +155,25 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 		push(listPage({
 			title: "Extensions · context inspector",
 			description: `${inspection.scope}\n≈ Characters / 4; known subtotals, not billed or complete per-extension totals.`,
-			items: inspection.sources.map((source) => ({ value: source.id, label: literalText(source.label), description: summary(source.items),
-				search: `${source.label} ${source.path} ${source.items.map((item) => item.label).join(" ")}` })),
-			metadata: (id) => inspection.sources.find((source) => source.id === id)?.path ?? "",
+			items: () => sources.map((source) => {
+				const resource = resources.get(source.id);
+				const pending = resource && resource.enabled !== loaded.get(source.id);
+				const box = !toggles ? "" : !resource ? "    " : resource.enabled ? "[x] " : "[ ] ";
+				return { value: source.id, label: box + literalText(source.label),
+					description: pending ? `${resource.enabled ? "enabled" : "disabled"}; /reload to apply`
+						: resource && !resource.enabled ? "disabled" : summary(source.items),
+					search: `${source.label} ${source.path} ${source.items.map((item) => item.label).join(" ")}` };
+			}),
+			metadata: (id) => !toggles || resources.has(id) || id === "shared-context" ? sources.find((source) => source.id === id)?.path ?? ""
+				: `${id} · toggle with pi config`,
+			toggle: toggles && (async (id) => {
+				const resource = resources.get(id);
+				if (!resource) return;
+				try { await toggles.set(resource, !resource.enabled); }
+				catch (error) { ctx.ui.notify(`Could not save extension setting: ${(error as Error).message}`, "error"); }
+			}),
 			select(id) {
-				const source = inspection.sources.find((source) => source.id === id)!;
+				const source = sources.find((source) => source.id === id)!;
 				push(listPage({
 					title: source.label,
 					description: `${summary(source.items)}\n${(["definition", "result", "message", "instructions"] as const)
@@ -153,7 +182,7 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 							const items = source.items.filter((item) => item.kind === kind);
 							return `${kind} ${tokenLabel(subtotal(items))}${items.some((item) => item.tokens === null) ? " + unavailable" : ""}`;
 						}).join(" · ")}\nInjection ownership / full total: unavailable. Select an exposed contribution.`,
-					items: source.items.map((item, index) => ({ value: String(index), label: `${tokenLabel(item.tokens)}  ${literalText(item.label)}`,
+					items: () => source.items.map((item, index) => ({ value: String(index), label: `${tokenLabel(item.tokens)}  ${literalText(item.label)}`,
 						description: item.kind, search: `${item.label} ${item.kind}` })),
 					metadata: (index) => source.items[Number(index)]?.note ?? source.path,
 					select: (index) => showContent(source.items[Number(index)]),
@@ -162,4 +191,5 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 		}));
 		return nav;
 	});
+	if (changed()) ctx.ui.notify("Extension changes saved. Run /reload to apply.", "info");
 }
