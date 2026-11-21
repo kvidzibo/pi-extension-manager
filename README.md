@@ -60,7 +60,10 @@ applies after `/reload` or a restart. Disabled extensions stay listed so they ca
 be re-enabled.
 
 - Entries are the same `+path` / `-path` filters that `pi config` writes, so both
-  tools can be used interchangeably.
+  tools can be used interchangeably. Re-enabling removes the filter again.
+- Each change is checked against Pi's resolver. If it would not take effect or
+  would change another resource (for example a single-file package, or one
+  extension of a package filtered with `[]`), it is undone and reported.
 - Only extensions from user settings have a checkbox. Use `pi config` for built-in
   extensions, project settings, skills, prompts and themes.
 - This extension has no checkbox: disabling it would remove the menu. Use
