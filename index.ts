@@ -1,8 +1,11 @@
-import { buildSessionContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { buildSessionContext, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { collectRows, type InventoryRow } from "./src/inventory.ts";
 import { renderTable } from "./src/table.ts";
 import { inspectContext, type Inspection } from "./src/context.ts";
 import { showInspector } from "./src/inspector.ts";
+import { loadToggles } from "./src/toggle.ts";
 
 const ENTRY = "pi-extension-manager:startup";
 
@@ -28,7 +31,7 @@ export default function (pi: ExtensionAPI) {
 			scope: `Last observed request · ${new Date().toLocaleTimeString()} · later hooks may change it` });
 	});
 	pi.registerCommand("pi-extensions", {
-		description: "Inspect extension context and estimated tokens",
+		description: "Inspect extension context and enable or disable extensions",
 		handler: async (_args, ctx) => {
 			if (ctx.mode !== "tui") {
 				ctx.ui.notify("/pi-extensions requires interactive TUI mode", "error");
@@ -39,7 +42,15 @@ export default function (pi: ExtensionAPI) {
 				messages: buildSessionContext(ctx.sessionManager.getBranch()).messages,
 				systemPrompt: ctx.getSystemPrompt(), sources: sources(),
 				scope: "Current branch · registered definitions before loadout · no request observed since load/reset" });
-			await showInspector(ctx, inspection);
+			// Not offered for this extension: disabling it would remove the menu that re-enables it.
+			const real = (path: string) => { try { return realpathSync(path); } catch { return path; } };
+			const self = real(fileURLToPath(import.meta.url));
+			const toggles = await loadToggles(ctx.cwd, getAgentDir()).then((loaded) => ({ ...loaded,
+				resources: loaded.resources.filter((resource) => real(resource.path) !== self) }), (error) => {
+				ctx.ui.notify(`Extension toggles unavailable: ${error.message}`, "warning");
+				return undefined;
+			});
+			await showInspector(ctx, inspection, toggles);
 		},
 	});
 	// All session_start handlers have finished, including late tool registrations.
