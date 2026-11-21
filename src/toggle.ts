@@ -38,6 +38,7 @@ export async function loadToggles(cwd: string, agentDir: string): Promise<Toggle
 			let entries = extensions;
 			let pattern = relative(metadata.baseDir ?? agentDir, resource.path);
 			let write = (updated: string[]) => settings.setExtensionPaths(updated);
+			let restore = () => settings.setExtensionPaths(extensions);
 			if (metadata.origin === "package") {
 				const index = packages.findIndex((pkg) => (typeof pkg === "string" ? pkg : pkg.source) === metadata.source);
 				if (index === -1) throw new Error(`package ${metadata.source} is not in user settings`);
@@ -45,6 +46,7 @@ export async function loadToggles(cwd: string, agentDir: string): Promise<Toggle
 				const filters = typeof pkg === "string" ? { source: pkg } : pkg;
 				entries = filters.extensions ?? [];
 				pattern = relative(metadata.baseDir ?? dirname(resource.path), resource.path);
+				restore = () => settings.setPackages(packages);
 				write = (updated) => {
 					const { extensions: _, ...rest } = filters;
 					const next = updated.length || filters.extensions?.length === 0 ? { ...rest, extensions: updated } : rest;
@@ -57,16 +59,17 @@ export async function loadToggles(cwd: string, agentDir: string): Promise<Toggle
 			// exactly what was asked and nothing else. Enabling first tries just dropping the override.
 			const key = `extensions:${resource.path}`;
 			let next: Awaited<ReturnType<typeof resolve>> | undefined;
-			for (const updated of enabled ? [cleared, [...cleared, `+${pattern}`]] : [[...cleared, `-${pattern}`]]) {
-				await save(() => write(updated));
-				const candidate = await resolve();
-				if (candidate.states.size === states.size && [...candidate.states].every(([path, state]) =>
-					path === key ? state === enabled : states.get(path) === state)) { next = candidate; break; }
+			try {
+				for (const updated of enabled ? [cleared, [...cleared, `+${pattern}`]] : [[...cleared, `-${pattern}`]]) {
+					await save(() => write(updated));
+					const candidate = await resolve();
+					if (candidate.states.size === states.size && [...candidate.states].every(([path, state]) =>
+						path === key ? state === enabled : states.get(path) === state)) { next = candidate; break; }
+				}
+			} finally {
+				if (!next) await save(restore);
 			}
-			if (!next) {
-				await save(() => write(entries));
-				throw new Error("Pi cannot apply this without changing other resources; use pi config or edit settings.json");
-			}
+			if (!next) throw new Error("Pi cannot apply this without changing other resources; use pi config or edit settings.json");
 			states = next.states;
 			resource.enabled = enabled;
 		},

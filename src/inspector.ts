@@ -102,6 +102,7 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 			let list: SelectList;
 			let filtered = options.items();
 			let limit = 8;
+			let busy = false;
 			const selected = () => list?.getSelectedItem()?.value ?? "";
 			const listHost = new Container();
 			const rebuild = (preselect = "") => {
@@ -124,7 +125,9 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 					} else if (options.toggle && data === " ") {
 						// Space toggles, as in `pi config`.
 						const id = selected();
-						void options.toggle(id).then(() => { rebuild(id); tui.requestRender(); });
+						if (busy) return; // One settings write at a time.
+						busy = true;
+						void options.toggle(id).then(() => { busy = false; rebuild(id); tui.requestRender(); });
 					} else {
 						input.handleInput(data);
 						rebuild();

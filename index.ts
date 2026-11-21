@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { buildSessionContext, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { collectRows, type InventoryRow } from "./src/inventory.ts";
@@ -42,9 +43,10 @@ export default function (pi: ExtensionAPI) {
 				systemPrompt: ctx.getSystemPrompt(), sources: sources(),
 				scope: "Current branch · registered definitions before loadout · no request observed since load/reset" });
 			// Not offered for this extension: disabling it would remove the menu that re-enables it.
-			const self = fileURLToPath(import.meta.url);
+			const real = (path: string) => { try { return realpathSync(path); } catch { return path; } };
+			const self = real(fileURLToPath(import.meta.url));
 			const toggles = await loadToggles(ctx.cwd, getAgentDir()).then((loaded) => ({ ...loaded,
-				resources: loaded.resources.filter((resource) => resource.path !== self) }), (error) => {
+				resources: loaded.resources.filter((resource) => real(resource.path) !== self) }), (error) => {
 				ctx.ui.notify(`Extension toggles unavailable: ${error.message}`, "warning");
 				return undefined;
 			});
