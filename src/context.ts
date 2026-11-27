@@ -21,7 +21,7 @@ export interface Usage {
 	calls: number;
 	results: number;
 	total: number;
-	/** Tool calls (or results, if more remain), or messages. */
+	/** Tool calls, or messages for the other groups. */
 	count: number;
 	items: Contribution[];
 }
@@ -173,12 +173,9 @@ export function usageByTool(sources: ContextSource[]): Usage[] {
 		if (group !== "tool") row.count++;
 		else if (item.kind === "definition") row.definition += tokens;
 		else if (item.kind === "result") row.results += tokens;
-		else row.calls += tokens;
+		else { row.calls += tokens; row.count++; }
 	}
 	const order = ["tool", "injected", "shared"];
-	return [...rows.values()].map((row) => {
-		const number = (kind: Contribution["kind"]) => row.items.filter((item) => item.kind === kind).length;
-		return row.group === "tool" ? { ...row, count: Math.max(number("message"), number("result")) } : row;
-	}).filter((row) => row.total || row.count).sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group)
+	return [...rows.values()].sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group)
 		|| b.total - a.total || a.label.localeCompare(b.label));
 }

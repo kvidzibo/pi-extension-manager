@@ -32,11 +32,15 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 			? `${head} · def ${cell(row.definition)} · calls ${cell(row.calls)} · results ${cell(row.results)} · ×${row.count}${unavailable}`
 			: `${head} · ×${row.count}${row.group === "injected" ? " custom messages" : ""}${unavailable}`;
 	};
+	// Repeats the row unpadded: narrow terminals cut or drop list descriptions.
 	const usageDetail = (row?: Usage) => {
-		const largest = row?.items.reduce<Contribution | undefined>((best, item) => (item.tokens ?? 0) > (best?.tokens ?? 0) ? item : best, undefined);
-		if (!row || !largest) return "";
-		const average = row.group === "tool" && row.count ? ` · average ${tokenLabel(Math.round((row.calls + row.results) / row.count))} per call` : "";
-		return `Largest: ${tokenLabel(largest.tokens)} · ${largest.label}${average}`;
+		if (!row) return "";
+		const largest = row.items.reduce<Contribution | undefined>((best, item) => (item.tokens ?? 0) > (best?.tokens ?? 0) ? item : best, undefined);
+		const parts = row.group === "tool"
+			? `definition ${tokenLabel(row.definition)} · calls ${tokenLabel(row.calls)} · results ${tokenLabel(row.results)} · ×${row.count} calls`
+			: `×${row.count} ${row.group === "injected" ? "custom messages" : "items"}`;
+		return `${tokenLabel(row.total)} · ${parts}${row.items.some((item) => item.tokens === null) ? " + unavailable" : ""}${
+			largest ? ` · largest ${tokenLabel(largest.tokens)} (${largest.label})` : ""}`;
 	};
 	const changed = () => [...resources].some(([path, resource]) => resource.enabled !== loaded.get(path));
 	await ctx.ui.custom<void>((tui, theme, kb, done) => {
@@ -190,7 +194,7 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 			metadata: (id) => usageDetail(usage.find((row) => row.id === id)),
 			select(id) {
 				const row = usage.find((row) => row.id === id)!;
-				push(itemsPage(usageName(row), `${summary(row.items)}\nSelect an exposed contribution.`, row.items, ""));
+				push(itemsPage(usageName(row), `${usageDetail(row)}\nSelect an exposed contribution.`, row.items, ""));
 			},
 		});
 
