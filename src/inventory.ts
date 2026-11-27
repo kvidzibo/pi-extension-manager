@@ -70,34 +70,48 @@ export function collectRows(tools: ToolInfo[], activeNames: string[]): Inventory
 		.sort((a, b) => (b.tokens ?? -1) - (a.tokens ?? -1) || a.extension.localeCompare(b.extension));
 }
 
+const FILE_OPEN = '<project_instructions path="';
+const FILE_CLOSE = "\n</project_instructions>";
+const CONTEXT_OPEN = `<project_context>\nProject-specific instructions and guidelines:\n\n${FILE_OPEN}`;
+const CONTEXT_CLOSE = `${FILE_CLOSE}\n</project_context>`;
+const SKILLS_CLOSE = "\n</available_skills>\n</skills>";
+
 /**
  * Splits Pi's rendered startup prompt into context files, skills and the remainder, plus active
- * core tool definitions. Text that does not parse stays in the remainder, so the sum is unchanged.
+ * core tool definitions. Sections are located by Pi's own delimiters, so tag-like text inside a
+ * context file is not mistaken for one. Text that does not parse stays in the remainder.
  */
 export function collectPromptRows(systemPrompt: string, tools: ToolInfo[], activeNames: string[], cwd: string, agentDir: string): PromptRow[] {
 	const rows: PromptRow[] = [];
-	const inside = (dir: string, path: string) => {
-		const rel = relative(dir, path);
-		return !rel.startsWith("..") && !isAbsolute(rel);
-	};
 	let rest = systemPrompt.length;
-	const add = (label: string, text: string) => {
-		rows.push({ label: cleanText(label), tokens: Math.ceil(text.length / 4) });
-		rest -= text.length;
+	const add = (label: string, length: number) => {
+		rows.push({ label: cleanText(label), tokens: Math.ceil(length / 4) });
+		rest -= length;
 	};
-	const files = [...systemPrompt.matchAll(/<project_instructions path="([^"\n]*)">\n[\s\S]*?\n<\/project_instructions>/g)];
-	const projects = files.filter((file) => !inside(agentDir, file[1])).length;
-	for (const file of files) {
-		const path = file[1];
-		add(inside(agentDir, path) ? `Global ${basename(path)}` : `Project ${projects > 1 ? relative(cwd, path) : basename(path)}`, file[0]);
+	const contextStart = systemPrompt.indexOf(CONTEXT_OPEN);
+	const contextEnd = contextStart < 0 ? -1 : systemPrompt.lastIndexOf(CONTEXT_CLOSE);
+	let after = 0;
+	if (contextEnd > contextStart) {
+		after = contextEnd + CONTEXT_CLOSE.length;
+		const files = systemPrompt.slice(contextStart + CONTEXT_OPEN.length, contextEnd).split(`${FILE_CLOSE}\n\n${FILE_OPEN}`)
+			.map((block) => ({ path: block.slice(0, Math.max(0, block.indexOf('">\n'))), length: FILE_OPEN.length + block.length + FILE_CLOSE.length }));
+		// Pi loads its global file from the agent directory itself; a project may live below it.
+		const global = (path: string) => relative(agentDir, dirname(path)) === "";
+		const projects = files.filter((file) => !global(file.path)).length;
+		for (const { path, length } of files) {
+			add(global(path) ? `Global ${basename(path)}` : `Project ${projects > 1 ? relative(cwd, path) : basename(path)}`, length);
+		}
 	}
-	// Pi renders skills after project context; start there so context file text cannot match.
-	const skillsStart = systemPrompt.indexOf("<skills>\n", systemPrompt.lastIndexOf("</project_context>") + 1);
-	const skillsEnd = skillsStart < 0 ? -1 : systemPrompt.indexOf("\n</skills>", skillsStart);
-	if (skillsEnd >= 0) {
-		const skills = systemPrompt.slice(skillsStart, skillsEnd + "\n</skills>".length);
-		add(`Skills (${skills.split("\n  <skill>\n").length - 1})`, skills);
+	// Pi renders skills between project context and cwd; skill text is XML-escaped.
+	const skillsEnd = systemPrompt.indexOf(`${SKILLS_CLOSE}\n\n<cwd>\n`, after);
+	const skillsStart = skillsEnd < 0 ? -1 : systemPrompt.lastIndexOf("\n\n<skills>\n", skillsEnd) + 2;
+	if (skillsStart >= Math.max(after, 2)) {
+		const skills = systemPrompt.slice(skillsStart, skillsEnd + SKILLS_CLOSE.length);
+		add(`Skills (${skills.split("\n  <skill>\n").length - 1})`, skills.length);
 	}
+	const rulesStart = systemPrompt.indexOf("\n\n<rules>\n");
+	const rulesEnd = rulesStart < 0 ? -1 : systemPrompt.indexOf("\n</rules>\n\n<docs>\n", rulesStart);
+	const rendered = rulesEnd < 0 ? "" : systemPrompt.slice(rulesStart + "\n\n<rules>".length, rulesEnd + 1);
 
 	const active = new Set(activeNames);
 	let core = 0;
@@ -106,7 +120,7 @@ export function collectPromptRows(systemPrompt: string, tools: ToolInfo[], activ
 	for (const tool of tools) {
 		if (!active.has(tool.name)) continue;
 		// Rule bullets are part of each tool's definition estimate; do not count them again here.
-		for (const rule of tool.promptGuidelines ?? []) if (systemPrompt.includes(`\n- ${rule.trim()}\n`)) rules.add(rule.trim());
+		for (const rule of tool.promptGuidelines ?? []) if (rendered.includes(`\n- ${rule.trim()}\n`)) rules.add(rule.trim());
 		if (tool.sourceInfo.path !== `builtin:${tool.name}` || !CORE_TOOLS.has(tool.name)) continue;
 		core++;
 		coreTokens += estimateDefinition(tool) ?? 0;
