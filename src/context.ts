@@ -8,6 +8,22 @@ export interface Contribution {
 	content: string;
 	tokens: number | null;
 	note: string;
+	/** Tool named by a definition, call or result. */
+	tool?: string;
+	/** Type of a custom message. */
+	customType?: string;
+}
+export interface Usage {
+	id: string;
+	label: string;
+	group: "tool" | "injected" | "shared";
+	definition: number;
+	calls: number;
+	results: number;
+	total: number;
+	/** Tool calls (or results, if more remain), or messages. */
+	count: number;
+	items: Contribution[];
 }
 export interface ContextSource {
 	id: string;
@@ -76,8 +92,9 @@ export function inspectContext(options: {
 		const tool = byName.get(name);
 		return tool && !isCore(tool) ? group(tool.sourceInfo) : shared;
 	};
-	const add = (target: ContextSource, label: string, kind: Contribution["kind"], value: unknown, note: string) => {
-		target.items.push({ label, kind, ...serialize(value), note });
+	const add = (target: ContextSource, label: string, kind: Contribution["kind"], value: unknown, note: string,
+		key: { tool?: string; customType?: string } = {}) => {
+		target.items.push({ label, kind, ...serialize(value), note, ...key });
 	};
 
 	if (!observed) {
@@ -87,7 +104,7 @@ export function inspectContext(options: {
 			let content: string;
 			try { content = definitionText(tool); } catch { content = "[Definition cannot be serialized]"; }
 			const known = active.includes(tool.name) && content !== "[Definition cannot be serialized]";
-			group(tool.sourceInfo).items.push({ label: tool.name, kind: "definition", content,
+			group(tool.sourceInfo).items.push({ label: tool.name, kind: "definition", content, tool: tool.name,
 				tokens: known ? estimate(content) : null,
 				note: known ? "Registered definition before loadout rewrites; not the final provider declaration." : "Catalog inclusion or definition cost unavailable; registered content only." });
 		}
@@ -109,18 +126,18 @@ export function inspectContext(options: {
 			}
 			for (const tool of message.toolsAdded ?? []) {
 				add(owner(tool.name), `${prefix}${tool.name}`, "definition", tool,
-					`${note} Source matched by current tool name, not historical provenance.`);
+					`${note} Source matched by current tool name, not historical provenance.`, { tool: tool.name });
 			}
 		} else if (message.role === "toolResult") {
 			add(owner(message.toolName), `${prefix}${message.toolName} result`, "result", {
 				role: message.role, toolCallId: message.toolCallId, toolName: message.toolName,
 				content: message.content, isError: message.isError,
-			}, `${note} Source matched by current tool name. Nested results exist only inside the outer tool's content.`);
+			}, `${note} Source matched by current tool name. Nested results exist only inside the outer tool's content.`, { tool: message.toolName });
 		} else if (message.role === "assistant") {
 			const remaining = message.content.filter((part) => part.type !== "toolCall");
 			if (remaining.length) add(shared, `${prefix}Assistant message`, "message", { role: message.role, content: remaining }, note);
 			for (const part of message.content) if (part.type === "toolCall") {
-				add(owner(part.name), `${prefix}${part.name} call`, "message", part, `${note} Source matched by current tool name.`);
+				add(owner(part.name), `${prefix}${part.name} call`, "message", part, `${note} Source matched by current tool name.`, { tool: part.name });
 			}
 		} else {
 			if (message.role === "bashExecution" && message.excludeFromContext) return;
@@ -130,11 +147,38 @@ export function inspectContext(options: {
 				: message.role === "bashExecution" ? { role: message.role, command: message.command, output: message.output,
 					exitCode: message.exitCode, cancelled: message.cancelled, truncated: message.truncated }
 				: { role: message.role, summary: message.summary };
-			add(shared, `${prefix}${message.role === "custom" ? `Custom: ${message.customType}` : message.role}`, "message", value, note);
+			add(shared, `${prefix}${message.role === "custom" ? `Custom: ${message.customType}` : message.role}`, "message", value, note,
+				message.role === "custom" ? { customType: message.customType } : {});
 		}
 	});
 
 	const sources = [...groups.values()].sort((a, b) => subtotal(b.items) - subtotal(a.items) || a.label.localeCompare(b.label));
 	sources.push(shared);
 	return { scope: options.scope, sources };
+}
+
+/** The same contributions, regrouped per tool name and custom message type. */
+export function usageByTool(sources: ContextSource[]): Usage[] {
+	const rows = new Map<string, Usage>();
+	for (const item of sources.flatMap((source) => source.items)) {
+		const [group, label] = item.tool !== undefined ? ["tool", item.tool] as const
+			: item.customType !== undefined ? ["injected", item.customType] as const
+			: ["shared", item.kind === "instructions" ? "System instructions" : "Conversation"] as const;
+		const id = `${group}:${label}`;
+		let row = rows.get(id);
+		if (!row) rows.set(id, row = { id, label, group, definition: 0, calls: 0, results: 0, total: 0, count: 0, items: [] });
+		row.items.push(item);
+		const tokens = item.tokens ?? 0;
+		row.total += tokens;
+		if (group !== "tool") row.count++;
+		else if (item.kind === "definition") row.definition += tokens;
+		else if (item.kind === "result") row.results += tokens;
+		else row.calls += tokens;
+	}
+	const order = ["tool", "injected", "shared"];
+	return [...rows.values()].map((row) => {
+		const number = (kind: Contribution["kind"]) => row.items.filter((item) => item.kind === kind).length;
+		return row.group === "tool" ? { ...row, count: Math.max(number("message"), number("result")) } : row;
+	}).filter((row) => row.total || row.count).sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group)
+		|| b.total - a.total || a.label.localeCompare(b.label));
 }

@@ -1,7 +1,7 @@
 import { DynamicBorder, getSelectListTheme, keyHint, keyText, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { Container, fuzzyFilter, Input, Key, matchesKey, ScrollView, SelectList, Spacer, Text,
 	truncateToWidth, type Component, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { literalText, subtotal, tokenLabel, type Contribution, type ContextSource, type Inspection } from "./context.ts";
+import { literalText, subtotal, tokenLabel, usageByTool, type Contribution, type ContextSource, type Inspection, type Usage } from "./context.ts";
 import { extensionName } from "./inventory.ts";
 import type { Toggles } from "./toggle.ts";
 
@@ -19,6 +19,25 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 		if (sources.some((source) => source.id === path)) continue;
 		sources.splice(-1, 0, { id: path, label: extensionName({ path, ...resource.metadata }), path, items: [] });
 	}
+	const usage = usageByTool(sources);
+	const known = usage.reduce((sum, row) => sum + row.total, 0);
+	const top = Math.max(1, ...usage.map((row) => row.total));
+	const usageName = (row: Usage) => row.group === "injected" ? `custom: ${row.label}` : row.label;
+	const usageLine = (row: Usage) => {
+		const filled = row.total ? Math.max(1, Math.round(row.total / top * 10)) : 0;
+		const cell = (tokens: number) => (tokens ? tokenLabel(tokens) : "—").padStart(8);
+		const head = `${"█".repeat(filled)}${"░".repeat(10 - filled)} ${tokenLabel(row.total).padStart(9)} ${`${Math.round(row.total / (known || 1) * 100)}%`.padStart(4)}`;
+		const unavailable = row.items.some((item) => item.tokens === null) ? " + unavailable" : "";
+		return row.group === "tool"
+			? `${head} · def ${cell(row.definition)} · calls ${cell(row.calls)} · results ${cell(row.results)} · ×${row.count}${unavailable}`
+			: `${head} · ×${row.count}${row.group === "injected" ? " custom messages" : ""}${unavailable}`;
+	};
+	const usageDetail = (row?: Usage) => {
+		const largest = row?.items.reduce<Contribution | undefined>((best, item) => (item.tokens ?? 0) > (best?.tokens ?? 0) ? item : best, undefined);
+		if (!row || !largest) return "";
+		const average = row.group === "tool" && row.count ? ` · average ${tokenLabel(Math.round((row.calls + row.results) / row.count))} per call` : "";
+		return `Largest: ${tokenLabel(largest.tokens)} · ${largest.label}${average}`;
+	};
 	const changed = () => [...resources].some(([path, resource]) => resource.enabled !== loaded.get(path));
 	await ctx.ui.custom<void>((tui, theme, kb, done) => {
 		const title = (text: string) => new Text(theme.bold(theme.fg("accent", literalText(text))), 1, 0);
@@ -155,10 +174,32 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 			return page;
 		}
 
+		const itemsPage = (name: string, description: string, items: Contribution[], fallback: string) => listPage({
+			title: name,
+			description,
+			items: () => items.map((item, index) => ({ value: String(index), label: `${tokenLabel(item.tokens)}  ${literalText(item.label)}`,
+				description: item.kind, search: `${item.label} ${item.kind}` })),
+			metadata: (index) => items[Number(index)]?.note ?? fallback,
+			select: (index) => showContent(items[Number(index)]),
+		});
+		const byTool = () => listPage({
+			title: "Extensions · context by tool",
+			description: `${inspection.scope}\n${tokenLabel(known)} known in total · bar relative to the largest row · share of that total · × calls or messages in context.\nCustom messages are grouped by type; the injecting extension is not exposed.`,
+			items: () => usage.map((row) => ({ value: row.id, label: literalText(usageName(row)), description: usageLine(row),
+				search: `${usageName(row)} ${row.group}` })),
+			metadata: (id) => usageDetail(usage.find((row) => row.id === id)),
+			select(id) {
+				const row = usage.find((row) => row.id === id)!;
+				push(itemsPage(usageName(row), `${summary(row.items)}\nSelect an exposed contribution.`, row.items, ""));
+			},
+		});
+
 		push(listPage({
 			title: "Extensions · context inspector",
 			description: `${inspection.scope}\n≈ Characters / 4; known subtotals, not billed or complete per-extension totals.`,
-			items: () => sources.map((source) => {
+			items: () => [{ value: "by-tool", label: `${toggles ? "    " : ""}Context by tool`,
+				description: `${tokenLabel(known)} known · ${usage.filter((row) => row.group === "tool").length} tools · ${usage.filter((row) => row.group === "injected").length} custom message types`,
+				search: "context by tool" }, ...sources.map((source) => {
 				const resource = resources.get(source.id);
 				const pending = resource && resource.enabled !== loaded.get(source.id);
 				const box = !toggles ? "" : !resource ? "    " : resource.enabled ? "[x] " : "[ ] ";
@@ -166,8 +207,8 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 					description: pending ? `${resource.enabled ? "enabled" : "disabled"}; /reload to apply`
 						: resource && !resource.enabled ? "disabled" : summary(source.items),
 					search: `${source.label} ${source.path} ${source.items.map((item) => item.label).join(" ")}` };
-			}),
-			metadata: (id) => !toggles || resources.has(id) || id === "shared-context" ? sources.find((source) => source.id === id)?.path ?? ""
+			})],
+			metadata: (id) => id === "by-tool" ? "Definitions, calls and results per tool; custom messages per type." : !toggles || resources.has(id) || id === "shared-context" ? sources.find((source) => source.id === id)?.path ?? ""
 				: `${id} · toggle with pi config`,
 			toggle: toggles && (async (id) => {
 				const resource = resources.get(id);
@@ -176,20 +217,14 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 				catch (error) { ctx.ui.notify(`Could not save extension setting: ${(error as Error).message}`, "error"); }
 			}),
 			select(id) {
+				if (id === "by-tool") return push(byTool());
 				const source = sources.find((source) => source.id === id)!;
-				push(listPage({
-					title: source.label,
-					description: `${summary(source.items)}\n${(["definition", "result", "message", "instructions"] as const)
+				push(itemsPage(source.label, `${summary(source.items)}\n${(["definition", "result", "message", "instructions"] as const)
 						.filter((kind) => source.items.some((item) => item.kind === kind))
 						.map((kind) => {
 							const items = source.items.filter((item) => item.kind === kind);
 							return `${kind} ${tokenLabel(subtotal(items))}${items.some((item) => item.tokens === null) ? " + unavailable" : ""}`;
-						}).join(" · ")}\nInjection ownership / full total: unavailable. Select an exposed contribution.`,
-					items: () => source.items.map((item, index) => ({ value: String(index), label: `${tokenLabel(item.tokens)}  ${literalText(item.label)}`,
-						description: item.kind, search: `${item.label} ${item.kind}` })),
-					metadata: (index) => source.items[Number(index)]?.note ?? source.path,
-					select: (index) => showContent(source.items[Number(index)]),
-				}));
+						}).join(" · ")}\nInjection ownership / full total: unavailable. Select an exposed contribution.`, source.items, source.path));
 			},
 		}));
 		return nav;

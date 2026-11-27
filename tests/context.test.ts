@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { initTheme, type ExtensionCommandContext, type ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getKeybindings, visibleWidth } from "@earendil-works/pi-tui";
-import { inspectContext, literalText } from "../src/context.ts";
+import { inspectContext, literalText, usageByTool } from "../src/context.ts";
 import { showInspector } from "../src/inspector.ts";
 
 test("inspector separates exposed definitions/results from unattributed content and safely drills down", async () => {
@@ -32,6 +32,11 @@ test("inspector separates exposed definitions/results from unattributed content 
 	assert.match(shared.items[1].content, /cannot infer source/);
 	assert.equal(shared.items[2].tokens, null);
 	assert.doesNotMatch(JSON.stringify(observed), /excluded metadata|sensitive-base64|must not duplicate/);
+	const usage = usageByTool(observed.sources);
+	assert.deepEqual(usage.map((row) => [row.id, row.count]),
+		[["tool:alpha", 1], ["injected:same", 1], ["shared:System instructions", 1], ["shared:Conversation", 1]]);
+	assert.deepEqual([usage[0].definition, usage[0].calls, usage[0].results, usage[0].total],
+		[attributed.items[0].tokens, 0, attributed.items[1].tokens, attributed.items[0].tokens! + attributed.items[1].tokens!]);
 	assert.equal(literalText("x\u001b[31m\u009by\u202e\n"), "x\\u001b[31m\\u009by\\u202e\n");
 
 	initTheme("dark");
@@ -46,6 +51,13 @@ test("inspector separates exposed definitions/results from unattributed content 
 			return lines.join("\n");
 		};
 		assert.match(render(100), /context inspector/);
+		menu.handleInput("\r"); // Context by tool is the first entry.
+		assert.match(render(140), /alpha +█+░* +≈[\d,]+ +\d+% · def +≈\d+ · calls +— · results +≈[\d,]+ · ×1/);
+		assert.match(render(140), /custom: same.* ×1 custom messages/);
+		menu.handleInput("\r");
+		assert.match(render(100), /alpha result/);
+		menu.handleInput("\x1b");
+		menu.handleInput("\x1b");
 		menu.handleInput("alpha");
 		assert.match(render(100), /same/);
 		menu.handleInput("\r");
