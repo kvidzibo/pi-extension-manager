@@ -48,13 +48,25 @@ Navigation follows Pi's configured keybindings.
   instruction-only extensions without either may be absent. Absence or “none
   observed” does not mean zero context.
 
+### Context by tool
+
+The first entry, **Context by tool**, regroups the same snapshot per tool name:
+definition, calls and results, with a bar, the share of the known total and the
+number of calls still in context. Use it to spot a tool that keeps adding content.
+
+- Custom messages follow, grouped by `customType` with their message count. Pi
+  does not expose which extension injected them.
+- System instructions and ordinary conversation are listed last.
+- Select a row to list its contributions. Only the inspected snapshot is counted,
+  not content already compacted away.
+
 Inspection adds no model-facing tools or messages. Request snapshots stay in memory only; they are not saved by this
 package. Content may be sensitive. Terminal controls are shown as escapes and
 image data is omitted explicitly.
 
 ## Enable or disable extensions
 
-In the source list, press **Space** on a `[x]` / `[ ]` entry to disable or enable
+In the source list, move to and press **Space** on a `[x]` / `[ ]` entry to disable or enable
 that extension. The change is saved to your user `settings.json` immediately and
 applies after `/reload` or a restart. Disabled extensions stay listed so they can
 be re-enabled.

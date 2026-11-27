@@ -50,6 +50,7 @@ test("space disables and re-enables user extensions and package extensions in Pi
 		const menu = factory(tui, { fg: (_color: string, text: string) => text, bold: (text: string) => text }, getKeybindings(), () => {});
 		menu.focused = true;
 		assert.match(menu.render(100).join("\n"), /\[x\] local/);
+		menu.handleInput("\x1b[B"); // Past the leading "Context by tool" entry.
 		menu.handleInput(" ");
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		assert.match(menu.render(100).join("\n"), /\[ \] local +disabled; \/reload to apply/);

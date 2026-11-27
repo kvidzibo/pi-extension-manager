@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { initTheme, type ExtensionCommandContext, type ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getKeybindings, visibleWidth } from "@earendil-works/pi-tui";
-import { inspectContext, literalText } from "../src/context.ts";
+import { inspectContext, literalText, usageByTool } from "../src/context.ts";
 import { showInspector } from "../src/inspector.ts";
 
 test("inspector separates exposed definitions/results from unattributed content and safely drills down", async () => {
@@ -19,12 +19,14 @@ test("inspector separates exposed definitions/results from unattributed content 
 	const observed = inspectContext({ tools: [tool, other], active: ["alpha"], systemPrompt: "must not duplicate", observed: true,
 		scope: "Last observed request", messages: [
 			{ role: "system", content: "injected\u001b[31m text", toolsAdded: [{ name: "alpha", description: "Rewritten description", parameters: { type: "object" } }], timestamp: 1 },
+			{ role: "assistant", content: [{ type: "toolCall", id: "call", name: "alpha", arguments: { path: "x" } }], timestamp: 2 },
+			{ role: "toolResult", toolName: "beta", toolCallId: "orphan", content: [{ type: "image", data: "sensitive-base64", mimeType: "image/png" }], isError: false, timestamp: 2 },
 			{ role: "toolResult", toolName: "alpha", toolCallId: "call", content: [{ type: "text", text: "result ".repeat(3000) }], details: { private: "excluded metadata" }, isError: false, timestamp: 2 },
 			{ role: "custom", customType: "same", content: "cannot infer source from customType", display: false, details: "excluded metadata", timestamp: 3 },
 			{ role: "user", content: [{ type: "image", data: "sensitive-base64", mimeType: "image/png" }], timestamp: 4 },
 		] });
 	const attributed = observed.sources.find((source) => source.id === tool.sourceInfo.path)!;
-	assert.deepEqual(attributed.items.map((item) => item.kind), ["definition", "result"]);
+	assert.deepEqual(attributed.items.map((item) => item.kind), ["definition", "message", "result"]);
 	assert.match(attributed.items[0].content, /Rewritten description/);
 	assert.ok(attributed.items.every((item) => item.tokens !== null));
 	const shared = observed.sources.at(-1)!;
@@ -32,6 +34,12 @@ test("inspector separates exposed definitions/results from unattributed content 
 	assert.match(shared.items[1].content, /cannot infer source/);
 	assert.equal(shared.items[2].tokens, null);
 	assert.doesNotMatch(JSON.stringify(observed), /excluded metadata|sensitive-base64|must not duplicate/);
+	const usage = usageByTool(observed.sources);
+	assert.deepEqual(usage.map((row) => [row.id, row.count]),
+		// A result whose call left the context is no call; an unavailable cost keeps its row.
+		[["tool:alpha", 1], ["tool:beta", 0], ["injected:same", 1], ["shared:System instructions", 1], ["shared:Conversation", 1]]);
+	const [definition, call, result] = attributed.items.map((item) => item.tokens!);
+	assert.deepEqual([usage[0].definition, usage[0].calls, usage[0].results, usage[0].total], [definition, call, result, definition + call + result]);
 	assert.equal(literalText("x\u001b[31m\u009by\u202e\n"), "x\\u001b[31m\\u009by\\u202e\n");
 
 	initTheme("dark");
@@ -46,6 +54,15 @@ test("inspector separates exposed definitions/results from unattributed content 
 			return lines.join("\n");
 		};
 		assert.match(render(100), /context inspector/);
+		menu.handleInput("\r"); // Context by tool is the first entry.
+		assert.match(render(140), /alpha +█+░* +≈[\d,]+ +\d+% · def +≈\d+ · calls +≈\d+ · results +≈[\d,]+ · ×1/);
+		assert.match(render(80), /def ≈\d+ · calls ≈\d+ · results ≈[\d,]+ · ×1 calls/); // Survives the cut description.
+		assert.match(render(140), /custom: same.* ×1 custom messages/);
+		menu.handleInput("\r");
+		assert.match(render(40), /≈[\d,]+ · \d+% · def/); // No list descriptions at this width.
+		assert.match(render(100), /alpha result/);
+		menu.handleInput("\x1b");
+		menu.handleInput("\x1b");
 		menu.handleInput("alpha");
 		assert.match(render(100), /same/);
 		menu.handleInput("\r");
