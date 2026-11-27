@@ -1,10 +1,18 @@
-import { basename, dirname } from "node:path";
+import { basename, dirname, isAbsolute, relative } from "node:path";
 import type { SourceInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 export interface InventoryRow {
 	extension: string;
 	tools: string[];
 	tokens: number | null;
+}
+export interface PromptRow {
+	label: string;
+	tokens: number;
+}
+export interface StartupSummary {
+	rows: InventoryRow[];
+	prompt: PromptRow[];
 }
 
 const CORE_TOOLS = new Set(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
@@ -60,4 +68,72 @@ export function collectRows(tools: ToolInfo[], activeNames: string[]): Inventory
 	return [...groups.values()]
 		.map((row) => ({ ...row, tools: row.tools.sort() }))
 		.sort((a, b) => (b.tokens ?? -1) - (a.tokens ?? -1) || a.extension.localeCompare(b.extension));
+}
+
+const FILE_OPEN = '<project_instructions path="';
+const FILE_CLOSE = "\n</project_instructions>";
+const CONTEXT_OPEN = `<project_context>\nProject-specific instructions and guidelines:\n\n${FILE_OPEN}`;
+const CONTEXT_CLOSE = `${FILE_CLOSE}\n</project_context>`;
+const SKILLS_CLOSE = "\n</available_skills>\n</skills>";
+
+/**
+ * Splits Pi's rendered startup prompt into context files, skills and the remainder, plus active
+ * core tool definitions. Sections are located by Pi's own delimiters, so tag-like text inside a
+ * context file is not mistaken for one. Text that does not parse stays in the remainder.
+ */
+export function collectPromptRows(systemPrompt: string, tools: ToolInfo[], activeNames: string[], cwd: string, agentDir: string): PromptRow[] {
+	const rows: PromptRow[] = [];
+	let rest = systemPrompt.length;
+	const add = (label: string, length: number) => {
+		rows.push({ label: cleanText(label), tokens: Math.ceil(length / 4) });
+		rest -= length;
+	};
+	const contextStart = systemPrompt.indexOf(CONTEXT_OPEN);
+	const contextEnd = contextStart < 0 ? -1 : systemPrompt.lastIndexOf(CONTEXT_CLOSE);
+	let after = 0;
+	if (contextEnd > contextStart) {
+		after = contextEnd + CONTEXT_CLOSE.length;
+		const files = systemPrompt.slice(contextStart + CONTEXT_OPEN.length, contextEnd).split(`${FILE_CLOSE}\n\n${FILE_OPEN}`)
+			.map((block) => ({ path: block.slice(0, Math.max(0, block.indexOf('">\n'))), length: FILE_OPEN.length + block.length + FILE_CLOSE.length }));
+		// Pi loads its global file from the agent directory itself; a project may live below it.
+		const global = (path: string) => relative(agentDir, dirname(path)) === "";
+		const projects = files.filter((file) => !global(file.path)).length;
+		for (const { path, length } of files) {
+			add(global(path) ? `Global ${basename(path)}` : `Project ${projects > 1 ? relative(cwd, path) : basename(path)}`, length);
+		}
+	}
+	// Pi renders skills between project context and cwd; skill text is XML-escaped.
+	const skillsEnd = systemPrompt.indexOf(`${SKILLS_CLOSE}\n\n<cwd>\n`, after);
+	const skillsStart = skillsEnd < 0 ? -1 : systemPrompt.lastIndexOf("\n\n<skills>\n", skillsEnd) + 2;
+	if (skillsStart >= Math.max(after, 2)) {
+		const skills = systemPrompt.slice(skillsStart, skillsEnd + SKILLS_CLOSE.length);
+		add(`Skills (${skills.split("\n  <skill>\n").length - 1})`, skills.length);
+	}
+	// Pi's default rules follow its tool list, ahead of any context file.
+	const head = contextEnd > contextStart ? systemPrompt.slice(0, contextStart) : systemPrompt;
+	const rulesStart = head.indexOf("\n</tools>\n\n<rules>\n");
+	const rulesEnd = rulesStart < 0 ? -1 : head.indexOf("\n</rules>\n\n<docs>\n", rulesStart);
+	const rendered = rulesEnd < 0 ? "" : head.slice(rulesStart + "\n</tools>\n\n<rules>".length, rulesEnd + 1);
+	const estimated = new Set(collectRows(tools, activeNames).flatMap((row) => row.tokens === null ? [] : row.tools));
+
+	const active = new Set(activeNames);
+	let core = 0;
+	let coreTokens = 0;
+	const rules = new Set<string>();
+	for (const tool of tools) {
+		if (!active.has(tool.name)) continue;
+		const isCore = tool.sourceInfo.path === `builtin:${tool.name}` && CORE_TOOLS.has(tool.name);
+		const tokens = isCore ? estimateDefinition(tool) : null;
+		// Rule bullets are part of a tool's definition estimate; where one is shown, do not count them again.
+		if (tokens !== null || estimated.has(cleanText(tool.name))) {
+			for (const rule of tool.promptGuidelines ?? []) if (rendered.includes(`\n- ${rule.trim()}\n`)) rules.add(rule.trim());
+		}
+		if (!isCore) continue;
+		core++;
+		coreTokens += tokens ?? 0;
+	}
+	for (const rule of rules) rest -= rule.length + 3;
+	if (systemPrompt) rows.push({ label: "Base prompt and rules", tokens: Math.ceil(Math.max(0, rest) / 4) });
+	if (core) rows.push({ label: `Core tools (${core})`, tokens: coreTokens });
+	return rows.sort((a, b) => b.tokens - a.tokens || a.label.localeCompare(b.label));
 }

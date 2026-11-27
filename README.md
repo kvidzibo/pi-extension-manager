@@ -2,7 +2,7 @@
 
 See which Pi extensions contribute context, inspect their content and estimated
 tokens, and enable or disable extensions with `/pi-extensions`. A compact
-tool-definition table appears at startup.
+table of tool-definition and prompt estimates appears at startup.
 
 [npm](https://www.npmjs.com/package/@kvidzibo/pi-extension-manager) ·
 [GitHub](https://github.com/kvidzibo/pi-extension-manager) ·
@@ -80,11 +80,21 @@ Known subtotals exclude unavailable costs and are **not complete per-extension
 or request totals**. Repeated instruction/tool updates may be represented
 differently by different providers.
 
-The startup table is a historical snapshot of active extension tool definitions,
-including registered prompt guidelines, before loadout rewrites. Core tools are
-omitted. Catalog-only codemode costs are `n/a` because Pi does not expose its
-inline catalog budget. The table shows up to eight sources and a known subtotal
-plus the number of unknown sources; the inspector has no source cap.
+The startup table is a historical snapshot with two blocks:
+
+- **Extension tools**: active extension tool definitions, including registered
+  prompt guidelines, before loadout rewrites. Catalog-only codemode costs are
+  `n/a` because Pi does not expose its inline catalog budget.
+- **Prompt context**: the system prompt at startup, split into each loaded context
+  file (`Global` for files in Pi's agent directory, `Project` otherwise), the
+  skills list, and the remaining base prompt and rules, plus active core tool
+  definitions. Rules already counted with a tool definition are not counted again.
+
+**Startup context** adds both blocks. It excludes what is only known later:
+skills contributed by extensions, prompt sections and messages that extensions
+inject per turn, and the conversation. Each block shows up to eight rows; totals
+cover all rows, and unknown sources are counted separately. The inspector has no
+source cap.
 
 The startup table is a native custom session entry, outside model context.
 

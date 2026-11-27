@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { buildSessionContext, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { collectRows, type InventoryRow } from "./src/inventory.ts";
+import { collectPromptRows, collectRows, type InventoryRow, type StartupSummary } from "./src/inventory.ts";
 import { renderTable } from "./src/table.ts";
 import { inspectContext, type Inspection } from "./src/context.ts";
 import { showInspector } from "./src/inspector.ts";
@@ -10,10 +10,12 @@ import { loadToggles } from "./src/toggle.ts";
 const ENTRY = "pi-extension-manager:startup";
 
 export default function (pi: ExtensionAPI) {
-	pi.registerEntryRenderer<InventoryRow[]>(ENTRY, (entry, _options, theme) => ({
-		render: (width) => renderTable(entry.data ?? [], width, theme),
-		invalidate() {},
-	}));
+	// Sessions saved before 1.3.0 hold the tool rows alone.
+	pi.registerEntryRenderer<StartupSummary | InventoryRow[]>(ENTRY, (entry, _options, theme) => {
+		const data = entry.data ?? [];
+		const summary = Array.isArray(data) ? { rows: data, prompt: [] } : data;
+		return { render: (width) => renderTable(summary.rows, width, theme, summary.prompt), invalidate() {} };
+	});
 
 	let startup = false;
 	let observed: Inspection | undefined;
@@ -54,9 +56,13 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 	// All session_start handlers have finished, including late tool registrations.
-	pi.on("resources_discover", () => {
+	pi.on("resources_discover", (_event, ctx) => {
 		if (!startup) return;
 		startup = false;
-		pi.appendEntry(ENTRY, collectRows(pi.getAllTools(), pi.getActiveTools()));
+		const tools = pi.getAllTools();
+		const active = pi.getActiveTools();
+		// Only estimates are stored: the prompt text itself may be sensitive.
+		pi.appendEntry(ENTRY, { rows: collectRows(tools, active),
+			prompt: collectPromptRows(ctx.getSystemPrompt(), tools, active, ctx.cwd, getAgentDir()) } satisfies StartupSummary);
 	});
 }
