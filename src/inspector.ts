@@ -38,9 +38,9 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 		if (!row) return "";
 		const largest = row.items.reduce<Contribution | undefined>((best, item) => (item.tokens ?? 0) > (best?.tokens ?? 0) ? item : best, undefined);
 		const parts = row.group === "tool"
-			? `definition ${tokenLabel(row.definition)} · calls ${tokenLabel(row.calls)} · results ${tokenLabel(row.results)} · ×${row.count} calls`
+			? `def ${tokenLabel(row.definition)} · calls ${tokenLabel(row.calls)} · results ${tokenLabel(row.results)} · ×${row.count} calls`
 			: `×${row.count} ${row.group === "injected" ? "custom messages" : "items"}`;
-		return `${tokenLabel(row.total)} · ${share(row)} of known · ${parts}${row.items.some((item) => item.tokens === null) ? " + unavailable" : ""}${
+		return `${tokenLabel(row.total)} · ${share(row)} · ${parts}${row.items.some((item) => item.tokens === null) ? " + unavailable" : ""}${
 			largest ? ` · largest ${tokenLabel(largest.tokens)} (${largest.label})` : ""}`;
 	};
 	const changed = () => [...resources].some(([path, resource]) => resource.enabled !== loaded.get(path));
