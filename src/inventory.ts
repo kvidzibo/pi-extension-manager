@@ -1,10 +1,18 @@
-import { basename, dirname } from "node:path";
+import { basename, dirname, isAbsolute, relative } from "node:path";
 import type { SourceInfo, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 export interface InventoryRow {
 	extension: string;
 	tools: string[];
 	tokens: number | null;
+}
+export interface PromptRow {
+	label: string;
+	tokens: number;
+}
+export interface StartupSummary {
+	rows: InventoryRow[];
+	prompt: PromptRow[];
 }
 
 const CORE_TOOLS = new Set(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
@@ -60,4 +68,51 @@ export function collectRows(tools: ToolInfo[], activeNames: string[]): Inventory
 	return [...groups.values()]
 		.map((row) => ({ ...row, tools: row.tools.sort() }))
 		.sort((a, b) => (b.tokens ?? -1) - (a.tokens ?? -1) || a.extension.localeCompare(b.extension));
+}
+
+/**
+ * Splits Pi's rendered startup prompt into context files, skills and the remainder, plus active
+ * core tool definitions. Text that does not parse stays in the remainder, so the sum is unchanged.
+ */
+export function collectPromptRows(systemPrompt: string, tools: ToolInfo[], activeNames: string[], cwd: string, agentDir: string): PromptRow[] {
+	const rows: PromptRow[] = [];
+	const inside = (dir: string, path: string) => {
+		const rel = relative(dir, path);
+		return !rel.startsWith("..") && !isAbsolute(rel);
+	};
+	let rest = systemPrompt.length;
+	const add = (label: string, text: string) => {
+		rows.push({ label: cleanText(label), tokens: Math.ceil(text.length / 4) });
+		rest -= text.length;
+	};
+	const files = [...systemPrompt.matchAll(/<project_instructions path="([^"\n]*)">\n[\s\S]*?\n<\/project_instructions>/g)];
+	const projects = files.filter((file) => !inside(agentDir, file[1])).length;
+	for (const file of files) {
+		const path = file[1];
+		add(inside(agentDir, path) ? `Global ${basename(path)}` : `Project ${projects > 1 ? relative(cwd, path) : basename(path)}`, file[0]);
+	}
+	// Pi renders skills after project context; start there so context file text cannot match.
+	const skillsStart = systemPrompt.indexOf("<skills>\n", systemPrompt.lastIndexOf("</project_context>") + 1);
+	const skillsEnd = skillsStart < 0 ? -1 : systemPrompt.indexOf("\n</skills>", skillsStart);
+	if (skillsEnd >= 0) {
+		const skills = systemPrompt.slice(skillsStart, skillsEnd + "\n</skills>".length);
+		add(`Skills (${skills.split("\n  <skill>\n").length - 1})`, skills);
+	}
+
+	const active = new Set(activeNames);
+	let core = 0;
+	let coreTokens = 0;
+	const rules = new Set<string>();
+	for (const tool of tools) {
+		if (!active.has(tool.name)) continue;
+		// Rule bullets are part of each tool's definition estimate; do not count them again here.
+		for (const rule of tool.promptGuidelines ?? []) if (systemPrompt.includes(`\n- ${rule.trim()}\n`)) rules.add(rule.trim());
+		if (tool.sourceInfo.path !== `builtin:${tool.name}` || !CORE_TOOLS.has(tool.name)) continue;
+		core++;
+		coreTokens += estimateDefinition(tool) ?? 0;
+	}
+	for (const rule of rules) rest -= rule.length + 3;
+	if (systemPrompt) rows.push({ label: "Base prompt and rules", tokens: Math.ceil(Math.max(0, rest) / 4) });
+	if (core) rows.push({ label: `Core tools (${core})`, tokens: coreTokens });
+	return rows.sort((a, b) => b.tokens - a.tokens || a.label.localeCompare(b.label));
 }

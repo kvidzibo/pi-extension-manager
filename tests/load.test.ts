@@ -30,15 +30,15 @@ test("manifest loads through Pi and prints one non-context entry only at TUI sta
 		await discover({}, { mode });
 	}
 	for (const reason of ["reload", "new", "resume", "fork"]) {
-		await start({ reason }, { mode: "tui" });
-		await discover({}, { mode: "tui" });
+		await start({ reason }, { mode: "tui", cwd: home, getSystemPrompt: () => "" });
+		await discover({}, { mode: "tui", cwd: home, getSystemPrompt: () => "" });
 	}
 	assert.equal(entries.length, 0);
-	await start({ reason: "startup" }, { mode: "tui" });
-	await discover({}, { mode: "tui" });
-	await discover({}, { mode: "tui" });
+	await start({ reason: "startup" }, { mode: "tui", cwd: home, getSystemPrompt: () => "" });
+	await discover({}, { mode: "tui", cwd: home, getSystemPrompt: () => "" });
+	await discover({}, { mode: "tui", cwd: home, getSystemPrompt: () => "" });
 	assert.equal(entries.length, 1);
 	assert.equal(entries[0].type, "pi-extension-manager:startup");
-	assert.deepEqual(entries[0].data, []);
+	assert.deepEqual(entries[0].data, { rows: [], prompt: [] });
 	assert.ok(extension.entryRenderers.has(entries[0].type));
 });
