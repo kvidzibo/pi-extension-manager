@@ -109,9 +109,12 @@ export function collectPromptRows(systemPrompt: string, tools: ToolInfo[], activ
 		const skills = systemPrompt.slice(skillsStart, skillsEnd + SKILLS_CLOSE.length);
 		add(`Skills (${skills.split("\n  <skill>\n").length - 1})`, skills.length);
 	}
-	const rulesStart = systemPrompt.indexOf("\n\n<rules>\n");
-	const rulesEnd = rulesStart < 0 ? -1 : systemPrompt.indexOf("\n</rules>\n\n<docs>\n", rulesStart);
-	const rendered = rulesEnd < 0 ? "" : systemPrompt.slice(rulesStart + "\n\n<rules>".length, rulesEnd + 1);
+	// Pi's default rules follow its tool list, ahead of any context file.
+	const head = contextEnd > contextStart ? systemPrompt.slice(0, contextStart) : systemPrompt;
+	const rulesStart = head.indexOf("\n</tools>\n\n<rules>\n");
+	const rulesEnd = rulesStart < 0 ? -1 : head.indexOf("\n</rules>\n\n<docs>\n", rulesStart);
+	const rendered = rulesEnd < 0 ? "" : head.slice(rulesStart + "\n</tools>\n\n<rules>".length, rulesEnd + 1);
+	const estimated = new Set(collectRows(tools, activeNames).flatMap((row) => row.tokens === null ? [] : row.tools));
 
 	const active = new Set(activeNames);
 	let core = 0;
@@ -119,11 +122,15 @@ export function collectPromptRows(systemPrompt: string, tools: ToolInfo[], activ
 	const rules = new Set<string>();
 	for (const tool of tools) {
 		if (!active.has(tool.name)) continue;
-		// Rule bullets are part of each tool's definition estimate; do not count them again here.
-		for (const rule of tool.promptGuidelines ?? []) if (rendered.includes(`\n- ${rule.trim()}\n`)) rules.add(rule.trim());
-		if (tool.sourceInfo.path !== `builtin:${tool.name}` || !CORE_TOOLS.has(tool.name)) continue;
+		const isCore = tool.sourceInfo.path === `builtin:${tool.name}` && CORE_TOOLS.has(tool.name);
+		const tokens = isCore ? estimateDefinition(tool) : null;
+		// Rule bullets are part of a tool's definition estimate; where one is shown, do not count them again.
+		if (tokens !== null || estimated.has(cleanText(tool.name))) {
+			for (const rule of tool.promptGuidelines ?? []) if (rendered.includes(`\n- ${rule.trim()}\n`)) rules.add(rule.trim());
+		}
+		if (!isCore) continue;
 		core++;
-		coreTokens += estimateDefinition(tool) ?? 0;
+		coreTokens += tokens ?? 0;
 	}
 	for (const rule of rules) rest -= rule.length + 3;
 	if (systemPrompt) rows.push({ label: "Base prompt and rules", tokens: Math.ceil(Math.max(0, rest) / 4) });

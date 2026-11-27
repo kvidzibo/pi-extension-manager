@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { relative } from "node:path";
 import { test } from "node:test";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -86,11 +87,16 @@ test("startup prompt rows split Pi's rendered prompt without double counting or 
 	const custom = buildSystemPrompt({ cwd, customPrompt: "Custom.", selectedTools: ["read"], toolGuidelines: { read: ["Use read."] },
 		appendSystemPrompt: "<skills>\nnot a skill\n</skills>\n- Use read.\n", contextFiles: [files[1], { path: `${agentDir}/ext/AGENTS.md`, content: "Parent." }] });
 	assert.deepEqual(collectPromptRows(custom, [], [], cwd, agentDir).map((row) => row.label).sort(),
-		["Base prompt and rules", "Project ../AGENTS.md", "Project AGENTS.md"]);
+		["Base prompt and rules", `Project ${relative(cwd, `${agentDir}/ext/AGENTS.md`)}`, "Project AGENTS.md"].sort());
 	const plain = buildSystemPrompt({ cwd, customPrompt: "Custom.", selectedTools: ["read"], appendSystemPrompt: "<skills>\nnot a skill\n</skills>\n- Use read.\n" });
 	assert.deepEqual(collectPromptRows(plain, [read], ["read"], cwd, agentDir).find((row) => row.label.startsWith("Base")), { label: "Base prompt and rules", tokens: tokens(plain.length) });
 	assert.equal(collectPromptRows(plain, [read], ["read"], cwd, agentDir).length, 2);
 	assert.deepEqual(collectPromptRows("", [], [], cwd, agentDir), []);
+	// A rule stays in the prompt estimate when its tool's definition has no estimate to hold it.
+	const guided = tool("guided", "/examples/mixed.ts", { promptGuidelines: ["Use guided."] });
+	const mixed = [guided, tool("catalog", "/examples/mixed.ts", { exposure: "codemode" }), tool("codemode", "builtin:codemode", { exposure: "model-only", reachesTools: () => "all" })];
+	const withRule = buildSystemPrompt({ cwd, selectedTools: ["guided", "codemode"], toolGuidelines: { guided: ["Use guided."] } });
+	assert.deepEqual(collectPromptRows(withRule, mixed, ["guided", "codemode"], cwd, agentDir), [{ label: "Base prompt and rules", tokens: tokens(withRule.length) }]);
 
 	const extension = collectRows(all, ["alpha"]);
 	const text = renderTable(extension, 100, theme, rows).join("\n");
