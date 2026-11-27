@@ -59,6 +59,7 @@ test("inspector separates exposed definitions/results from unattributed content 
 		assert.match(render(80), /definition ≈\d+ · calls ≈\d+ · results ≈[\d,]+ · ×1 calls/); // Survives the cut description.
 		assert.match(render(140), /custom: same.* ×1 custom messages/);
 		menu.handleInput("\r");
+		assert.match(render(40), /≈[\d,]+ · \d+% of known/); // No list descriptions at this width.
 		assert.match(render(100), /alpha result/);
 		menu.handleInput("\x1b");
 		menu.handleInput("\x1b");

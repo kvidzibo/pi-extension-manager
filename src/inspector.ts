@@ -23,10 +23,11 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 	const known = usage.reduce((sum, row) => sum + row.total, 0);
 	const top = Math.max(1, ...usage.map((row) => row.total));
 	const usageName = (row: Usage) => row.group === "injected" ? `custom: ${row.label}` : row.label;
+	const share = (row: Usage) => `${Math.round(row.total / (known || 1) * 100)}%`;
 	const usageLine = (row: Usage) => {
 		const filled = row.total ? Math.max(1, Math.round(row.total / top * 10)) : 0;
 		const cell = (tokens: number) => (tokens ? tokenLabel(tokens) : "—").padStart(8);
-		const head = `${"█".repeat(filled)}${"░".repeat(10 - filled)} ${tokenLabel(row.total).padStart(9)} ${`${Math.round(row.total / (known || 1) * 100)}%`.padStart(4)}`;
+		const head = `${"█".repeat(filled)}${"░".repeat(10 - filled)} ${tokenLabel(row.total).padStart(9)} ${share(row).padStart(4)}`;
 		const unavailable = row.items.some((item) => item.tokens === null) ? " + unavailable" : "";
 		return row.group === "tool"
 			? `${head} · def ${cell(row.definition)} · calls ${cell(row.calls)} · results ${cell(row.results)} · ×${row.count}${unavailable}`
@@ -39,7 +40,7 @@ export async function showInspector(ctx: ExtensionCommandContext, inspection: In
 		const parts = row.group === "tool"
 			? `definition ${tokenLabel(row.definition)} · calls ${tokenLabel(row.calls)} · results ${tokenLabel(row.results)} · ×${row.count} calls`
 			: `×${row.count} ${row.group === "injected" ? "custom messages" : "items"}`;
-		return `${tokenLabel(row.total)} · ${parts}${row.items.some((item) => item.tokens === null) ? " + unavailable" : ""}${
+		return `${tokenLabel(row.total)} · ${share(row)} of known · ${parts}${row.items.some((item) => item.tokens === null) ? " + unavailable" : ""}${
 			largest ? ` · largest ${tokenLabel(largest.tokens)} (${largest.label})` : ""}`;
 	};
 	const changed = () => [...resources].some(([path, resource]) => resource.enabled !== loaded.get(path));
